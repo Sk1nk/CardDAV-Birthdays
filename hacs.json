@@ -2,6 +2,5 @@
   "name": "CardDAV Birthdays",
   "render_readme": true,
   "homeassistant": "2023.6.0",
-  "zip_release": true,
-  "filename": "carddav_birthdays.zip"
+  "zip_release": false
 }
