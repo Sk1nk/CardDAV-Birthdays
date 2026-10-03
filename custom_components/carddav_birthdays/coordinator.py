@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import logging
-import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
 from typing import Any
 
 import aiohttp
-import vobject
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -22,46 +20,9 @@ from .const import (
     DOMAIN,
     SCAN_INTERVAL,
 )
+from .vcard import ADDRESSBOOK_QUERY, parse_vcards
 
 _LOGGER = logging.getLogger(__name__)
-
-ADDRESSBOOK_QUERY = """<?xml version="1.0" encoding="utf-8" ?>
-<C:addressbook-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:carddav">
-  <D:prop>
-    <D:getetag/>
-    <C:address-data>
-      <C:prop name="FN"/>
-      <C:prop name="BDAY"/>
-    </C:address-data>
-  </D:prop>
-</C:addressbook-query>"""
-
-NS = {
-    "D": "DAV:",
-    "C": "urn:ietf:params:xml:ns:carddav",
-}
-
-
-def _parse_bday(bday_str: str) -> date | None:
-    """Parse a vCard BDAY value into a date. Returns None if unparseable."""
-    s = bday_str.strip()
-    # Full date: 19850315 or 1985-03-15
-    for fmt in ("%Y%m%d", "%Y-%m-%d"):
-        try:
-            return datetime.strptime(s, fmt).date()
-        except ValueError:
-            pass
-    # Year-less: --0315 or --03-15
-    for prefix in ("--",):
-        if s.startswith(prefix):
-            tail = s[len(prefix):].replace("-", "")
-            try:
-                parsed = datetime.strptime(tail, "%m%d")
-                return date(1, parsed.month, parsed.day)
-            except ValueError:
-                pass
-    return None
-
 
 def _days_until_next_birthday(bday: date, today: date) -> int:
     """Return the number of days from today until the next occurrence of this birthday."""
@@ -85,37 +46,6 @@ def _age_at_next(bday: date, today: date) -> int | None:
     days = _days_until_next_birthday(bday, today)
     next_year = (today + timedelta(days=days)).year
     return next_year - bday.year
-
-
-def _parse_vcards(xml_body: str) -> list[dict[str, Any]]:
-    """Extract contacts with birthday info from a CardDAV REPORT response."""
-    contacts: list[dict[str, Any]] = []
-    try:
-        root = ET.fromstring(xml_body)
-    except ET.ParseError as exc:
-        _LOGGER.warning("Failed to parse CardDAV XML response: %s", exc)
-        return contacts
-
-    for response in root.findall("D:response", NS):
-        for prop_ok in response.findall("D:propstat/D:prop/C:address-data", NS):
-            vcard_text = prop_ok.text
-            if not vcard_text:
-                continue
-            try:
-                vcard = vobject.readOne(vcard_text)
-            except Exception:
-                continue
-            bday_val = getattr(vcard, "bday", None)
-            if bday_val is None:
-                continue
-            bday = _parse_bday(str(bday_val.value))
-            if bday is None:
-                continue
-            fn = getattr(vcard, "fn", None)
-            name = fn.value.strip() if fn else "Unknown"
-            contacts.append({"name": name, "birthday": bday})
-
-    return contacts
 
 
 class CardDAVBirthdayCoordinator(DataUpdateCoordinator):
@@ -162,7 +92,7 @@ class CardDAVBirthdayCoordinator(DataUpdateCoordinator):
         except aiohttp.ClientError as exc:
             raise UpdateFailed(f"Cannot connect to CardDAV server: {exc}") from exc
 
-        self._contacts = _parse_vcards(body)
+        self._contacts = parse_vcards(body)
         self._last_fetch = datetime.now()
         _LOGGER.debug("Fetched %d contacts with birthdays", len(self._contacts))
 
