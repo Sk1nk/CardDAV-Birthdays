@@ -1,5 +1,7 @@
 """Tests for CardDAV vCard parsing."""
 
+from datetime import date
+
 from custom_components.carddav_birthdays.vcard import (
     ADDRESSBOOK_QUERY,
     parse_vcards,
@@ -75,3 +77,33 @@ END:VCARD"""
     )
 
     assert contacts[0]["name"] == "Unknown"
+
+
+def test_parse_vcard_treats_apple_placeholder_as_unknown_year() -> None:
+    contacts = parse_vcards(
+        _report(
+            """BEGIN:VCARD
+VERSION:3.0
+N:Mustermann;Max;;;
+FN:Max Mustermann
+BDAY;X-APPLE-OMIT-YEAR=1604:1604-03-15
+END:VCARD"""
+        )
+    )
+
+    assert contacts[0]["birthday"] == date(1, 3, 15)
+
+
+def test_parse_vcard_supports_standard_birthday_without_year() -> None:
+    contacts = parse_vcards(
+        _report(
+            """BEGIN:VCARD
+VERSION:4.0
+N:Mustermann;Max;;;
+FN:Max Mustermann
+BDAY:--0315
+END:VCARD"""
+        )
+    )
+
+    assert contacts[0]["birthday"] == date(1, 3, 15)

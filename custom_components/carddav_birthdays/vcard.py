@@ -79,6 +79,14 @@ def _contact_name(vcard: Any) -> str:
     return " ".join(parts) or "Unknown"
 
 
+def _birthday_year_is_omitted(bday: Any) -> bool:
+    """Return whether a birthday uses Apple's placeholder year extension."""
+    params = getattr(bday, "params", {})
+    return any(
+        str(name).upper() == "X-APPLE-OMIT-YEAR" for name in params
+    )
+
+
 def parse_vcards(xml_body: str) -> list[dict[str, Any]]:
     """Extract contacts with birthday info from a CardDAV REPORT response."""
     contacts: list[dict[str, Any]] = []
@@ -103,6 +111,8 @@ def parse_vcards(xml_body: str) -> list[dict[str, Any]]:
             bday = _parse_bday(str(bday_val.value))
             if bday is None:
                 continue
+            if _birthday_year_is_omitted(bday_val):
+                bday = bday.replace(year=1)
             contacts.append({"name": _contact_name(vcard), "birthday": bday})
 
     return contacts
